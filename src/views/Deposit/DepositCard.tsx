@@ -4,8 +4,11 @@ import { PrizePool } from '@pooltogether/v4-client-js'
 import { useRouter } from 'next/router'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { ethers, Overrides } from 'ethers'
+import { BigNumber, ethers, Overrides } from 'ethers'
 import { TransactionState, useTransaction } from '@pooltogether/wallet-connection'
+import { useSigner } from 'wagmi'
+import { signERC2612Permit } from 'eth-permit'
+import { toast } from 'react-toastify'
 
 import { BUTTON_MIN_WIDTH } from '@constants/misc'
 import { BridgeTokensModal } from '@components/Modal/BridgeTokensModal'
@@ -24,13 +27,18 @@ import { useUsersAddress } from '@pooltogether/wallet-connection'
 import { useUsersTotalTwab } from '@hooks/v4/PrizePool/useUsersTotalTwab'
 import { useGetUser } from '@hooks/v4/User/useGetUser'
 import { FathomEvent, logEvent } from '@utils/services/fathom'
+import { getEip2612PermitAndDepositContract } from '@utils/PrizePool/getEip2612PermitAndDepositContract'
 
 export const DepositCard = (props: { className?: string }) => {
   const { className } = props
 
   const router = useRouter()
 
+  const [isSignaturePending, setSignaturePending] = useState<boolean>(false)
+
   const prizePool = usePrizePoolBySelectedChainId()
+  const chainId = prizePool.chainId
+
   const usersAddress = useUsersAddress()
   const { data: prizePoolTokens, isFetched: isPrizePoolTokensFetched } =
     usePrizePoolTokens(prizePool)
@@ -41,9 +49,9 @@ export const DepositCard = (props: { className?: string }) => {
   } = useUsersPrizePoolBalances(usersAddress, prizePool)
   const usersBalances = usersBalancesData?.balances
   const {
-    data: depositAllowanceUnformatted,
-    refetch: refetchUsersDepositAllowance,
-    isFetched: isUsersDepositAllowanceFetched
+    data: allowanceUnformatted,
+    refetch: refetchUsersAllowance,
+    isFetched: isUsersAllowanceFetched
   } = useUsersDepositAllowance(prizePool)
   const {
     data: delegateData,
@@ -56,7 +64,7 @@ export const DepositCard = (props: { className?: string }) => {
 
   const isDataFetched =
     isPrizePoolTokensFetched &&
-    isUsersDepositAllowanceFetched &&
+    isUsersAllowanceFetched &&
     isUsersBalancesFetched &&
     usersBalancesData?.usersAddress === usersAddress &&
     (isTicketDelegateFetched || !isTicketDelegateFetching)
@@ -69,6 +77,7 @@ export const DepositCard = (props: { className?: string }) => {
   })
 
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false)
+  const { data: signer } = useSigner()
 
   const { t } = useTranslation()
 
@@ -136,7 +145,7 @@ export const DepositCard = (props: { className?: string }) => {
       },
       callbacks: {
         onConfirmedByUser: () => logEvent(FathomEvent.approveDeposit),
-        refetch: () => refetchUsersDepositAllowance()
+        refetch: () => refetchUsersAllowance()
       }
     })
     setApproveTxId(txId, prizePool)
@@ -150,19 +159,110 @@ export const DepositCard = (props: { className?: string }) => {
   const sendDepositTx = async () => {
     const name = `${t('deposit')} ${amountToDeposit.amountPretty} ${token.symbol}`
     const overrides: Overrides = { gasLimit: 750000 }
-    let contractMethod
+    const ticketContract = await prizePool.getTicketContract()
+
     let callTransaction
+
+    // Default case if user has enough allowance
     if (ticketDelegate === ethers.constants.AddressZero) {
-      contractMethod = 'depositToAndDelegate'
       callTransaction = async () => {
         const user = await getUser()
         return user.depositAndDelegate(amountToDeposit.amountUnformatted, usersAddress, overrides)
       }
     } else {
-      contractMethod = 'depositTo'
       callTransaction = async () => {
         const user = await getUser()
         return user.deposit(amountToDeposit.amountUnformatted, overrides)
+      }
+    }
+
+    // If not enough allowance yet, get signature approval
+    const needsApproval = allowanceUnformatted?.lt(amountToDeposit.amountUnformatted)
+    if (needsApproval) {
+      setSignaturePending(true)
+
+      const eip2612PermitAndDepositContract = getEip2612PermitAndDepositContract(chainId, signer)
+
+      const amountToIncrease = amountToDeposit.amountUnformatted.sub(allowanceUnformatted)
+      const domain = {
+        name: 'USDC',
+        // name: 'PoolTogether ControlledToken',
+        version: '1',
+        chainId,
+        verifyingContract: token.address
+        // verifyingContract: ticketContract.address
+      }
+
+      // NOTE: Nonce must be passed manually for signERC2612Permit to work with WalletConnect
+      const deadline = (await signer.provider.getBlock('latest')).timestamp + 5 * 60
+
+      const response = await signer.getTransactionCount()
+      const nonce = BigNumber.from(response)
+
+      const signaturePromise = signERC2612Permit(
+        signer,
+        domain,
+        usersAddress,
+        eip2612PermitAndDepositContract.address,
+        amountToIncrease.toString(),
+        deadline,
+        nonce.toNumber()
+      )
+      console.log(amountToIncrease.toString())
+
+      toast.promise(signaturePromise, {
+        pending: t('signatureIsPending'),
+        error: t('signatureRejected')
+      })
+
+      try {
+        const signature = await signaturePromise
+        console.log(signature)
+
+        // Overwrite v for hardware wallet signatures
+        // https://ethereum.stackexchange.com/questions/103307/cannot-verifiy-a-signature-produced-by-ledger-in-solidity-using-ecrecover
+        const v = signature.v < 27 ? signature.v + 27 : signature.v
+
+        // const eip2612PermitAndDepositContractAddress = 0xb38e46EBf90888D621Cde5661D3cC2476d7bCc2e
+        // const populatedTx = eip2612PermitAndDepositContract.populateTransaction.permitAndDepositToAndDelegate(
+
+        // )
+
+        // const populatedTx = await twabDelegatorContract.populateTransaction.stake(
+        //   delegator,
+        //   amountToDeposit.amountUnformatted
+        // )
+
+        //
+        // IPrizePool _prizePool,
+        // uint256 _amount,
+        // address _to,
+        // Signature calldata _permitSignature,
+        // DelegateSignature calldata _delegateSignature
+        //
+        callTransaction = async () => {
+          eip2612PermitAndDepositContract.permitAndDepositToAndDelegate(
+            prizePool.address,
+            amountToDeposit.amountUnformatted,
+            usersAddress,
+            {
+              deadline: signature.deadline,
+              v,
+              r: signature.r,
+              s: signature.s
+            },
+            {
+              deadline: signature.deadline,
+              v,
+              r: signature.r,
+              s: signature.s
+            }
+          )
+        }
+      } catch (e) {
+        setSignaturePending(false)
+        console.error(e)
+        return
       }
     }
 
@@ -247,13 +347,14 @@ export const DepositCard = (props: { className?: string }) => {
         ticket={ticket}
         isDataFetched={isDataFetched}
         amountToDeposit={amountToDeposit}
-        depositAllowanceUnformatted={depositAllowanceUnformatted}
+        allowanceUnformatted={allowanceUnformatted}
         approveTx={approveTx}
         depositTx={depositTx}
         sendApproveTx={sendApproveTx}
         sendDepositTx={sendDepositTx}
         prizePool={prizePool}
         resetState={resetState}
+        isSignaturePending={isSignaturePending}
       />
     </>
   )
