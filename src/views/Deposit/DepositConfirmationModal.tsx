@@ -92,6 +92,9 @@ export const DepositConfirmationModal = (props: DepositConfirmationModalProps) =
         <ModalLoadingGate className='mt-8' />
       </>
     )
+    // This is the previous method of sending a tx and spending gas to approve
+    // it's necessary for other tokens than USDC that don't support permit
+    //
     // } else if (needsApproval) {
     //   content = (
     //     <>

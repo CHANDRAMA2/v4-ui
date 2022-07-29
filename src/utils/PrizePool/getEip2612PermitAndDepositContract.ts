@@ -31,14 +31,5 @@ export const getEip2612PermitAndDepositContract = (
   )
 }
 
-export const getEip2612PermitAndDepositEtherplexContract = (chainId: number): MulticallContract => {
-  const eip2612PermitAndDepositAddress = getEip2612PermitAndDepositAddress(chainId)
-  return contract(
-    eip2612PermitAndDepositAddress,
-    EIP2612PermitAndDepositAbi,
-    eip2612PermitAndDepositAddress
-  )
-}
-
 export const getEip2612PermitAndDepositAddress = (chainId: number) =>
   EIP_2612_PERMIT_AND_DEPOSIT_ADDRESS[chainId]

@@ -28,6 +28,9 @@ import { useUsersTotalTwab } from '@hooks/v4/PrizePool/useUsersTotalTwab'
 import { useGetUser } from '@hooks/v4/User/useGetUser'
 import { FathomEvent, logEvent } from '@utils/services/fathom'
 import { getEip2612PermitAndDepositContract } from '@utils/PrizePool/getEip2612PermitAndDepositContract'
+import { getTokenContract } from '@utils/PrizePool/getTokenContract'
+import { getTicketContract } from '@utils/PrizePool/getTicketContract'
+import { generateDelegateSignature } from '@utils/PrizePool/generateDelegateSignature'
 
 export const DepositCard = (props: { className?: string }) => {
   const { className } = props
@@ -159,124 +162,167 @@ export const DepositCard = (props: { className?: string }) => {
   const sendDepositTx = async () => {
     const name = `${t('deposit')} ${amountToDeposit.amountPretty} ${token.symbol}`
     const overrides: Overrides = { gasLimit: 750000 }
-    const ticketContract = await prizePool.getTicketContract()
+    await prizePool.getTokenContract()
+    await prizePool.getTicketContract()
+    // const tokenContract = await prizePool.getTokenContract()
+    // const ticketContract = await prizePool.getTicketContract()
+    const tokenContract = getTokenContract(prizePool, signer)
+    const ticketContract = getTicketContract(prizePool, signer)
 
     let callTransaction
 
     // Default case if user has enough allowance
-    if (ticketDelegate === ethers.constants.AddressZero) {
-      callTransaction = async () => {
-        const user = await getUser()
-        return user.depositAndDelegate(amountToDeposit.amountUnformatted, usersAddress, overrides)
-      }
-    } else {
-      callTransaction = async () => {
-        const user = await getUser()
-        return user.deposit(amountToDeposit.amountUnformatted, overrides)
-      }
-    }
+    // if (ticketDelegate === ethers.constants.AddressZero) {
+    //   callTransaction = async () => {
+    //     const user = await getUser()
+    //     return user.depositAndDelegate(amountToDeposit.amountUnformatted, usersAddress, overrides)
+    //   }
+    // } else {
+    //   callTransaction = async () => {
+    //     const user = await getUser()
+    //     return user.deposit(amountToDeposit.amountUnformatted, overrides)
+    //   }
+    // }
 
     // If not enough allowance yet, get signature approval
-    const needsApproval = allowanceUnformatted?.lt(amountToDeposit.amountUnformatted)
-    if (needsApproval) {
-      setSignaturePending(true)
+    // const needsApproval = allowanceUnformatted?.lt(amountToDeposit.amountUnformatted)
+    // if (needsApproval) {
+    // setSignaturePending(true)
 
-      const eip2612PermitAndDepositContract = getEip2612PermitAndDepositContract(chainId, signer)
+    const eip2612PermitAndDepositContract = getEip2612PermitAndDepositContract(chainId, signer)
 
-      const amountToIncrease = amountToDeposit.amountUnformatted.sub(allowanceUnformatted)
-      const domain = {
-        name: 'USDC',
-        // name: 'PoolTogether ControlledToken',
-        version: '1',
-        chainId,
-        verifyingContract: token.address
-        // verifyingContract: ticketContract.address
-      }
+    const deadline = (await signer.provider.getBlock('latest')).timestamp + 5 * 60
 
-      // NOTE: Nonce must be passed manually for signERC2612Permit to work with WalletConnect
-      const deadline = (await signer.provider.getBlock('latest')).timestamp + 5 * 60
-
-      const response = await signer.getTransactionCount()
-      const nonce = BigNumber.from(response)
-
-      const signaturePromise = signERC2612Permit(
-        signer,
-        domain,
-        usersAddress,
-        eip2612PermitAndDepositContract.address,
-        amountToIncrease.toString(),
-        deadline,
-        nonce.toNumber()
-      )
-      console.log(amountToIncrease.toString())
-
-      toast.promise(signaturePromise, {
-        pending: t('signatureIsPending'),
-        error: t('signatureRejected')
-      })
-
-      try {
-        const signature = await signaturePromise
-        console.log(signature)
-
-        // Overwrite v for hardware wallet signatures
-        // https://ethereum.stackexchange.com/questions/103307/cannot-verifiy-a-signature-produced-by-ledger-in-solidity-using-ecrecover
-        const v = signature.v < 27 ? signature.v + 27 : signature.v
-
-        // const eip2612PermitAndDepositContractAddress = 0xb38e46EBf90888D621Cde5661D3cC2476d7bCc2e
-        // const populatedTx = eip2612PermitAndDepositContract.populateTransaction.permitAndDepositToAndDelegate(
-
-        // )
-
-        // const populatedTx = await twabDelegatorContract.populateTransaction.stake(
-        //   delegator,
-        //   amountToDeposit.amountUnformatted
-        // )
-
-        //
-        // IPrizePool _prizePool,
-        // uint256 _amount,
-        // address _to,
-        // Signature calldata _permitSignature,
-        // DelegateSignature calldata _delegateSignature
-        //
-        callTransaction = async () => {
-          eip2612PermitAndDepositContract.permitAndDepositToAndDelegate(
-            prizePool.address,
-            amountToDeposit.amountUnformatted,
-            usersAddress,
-            {
-              deadline: signature.deadline,
-              v,
-              r: signature.r,
-              s: signature.s
-            },
-            {
-              deadline: signature.deadline,
-              v,
-              r: signature.r,
-              s: signature.s
-            }
-          )
-        }
-      } catch (e) {
-        setSignaturePending(false)
-        console.error(e)
-        return
-      }
+    // Permit signature
+    const permitDomain = {
+      name: 'USD Coin',
+      version: '1',
+      chainId,
+      verifyingContract: token.address
     }
+
+    // NOTE: Nonce must be passed manually for signERC2612Permit to work with WalletConnect
+    // const deadline = (await signer.provider.getBlock('latest')).timestamp + 5 * 60
+    // This fails against contracts on Rinkeby/etc because `nonces` function doesn't exist
+    const tokenContractResponse = await tokenContract.nonces(usersAddress)
+    const tokenNonce: BigNumber = tokenContractResponse
+
+    // const permitSignaturePromise = signERC2612Permit(
+    //   signer,
+    //   permitDomain,
+    //   usersAddress,
+    //   eip2612PermitAndDepositContract.address,
+    //   amountToDeposit.amountUnformatted.toString(),
+    //   deadline,
+    //   tokenNonce.toNumber()
+    // )
+
+    // Delegate signature
+    const delegateDomain = {
+      name: 'PoolTogether ControlledToken',
+      version: '1',
+      chainId,
+      verifyingContract: ticket.address
+    }
+
+    // NOTE: Nonce must be passed manually for signERC2612Permit to work with WalletConnect
+    // const deadline = (await signer.provider.getBlock('latest')).timestamp + 5 * 60
+    const ticketContractResponse = await ticketContract.nonces(usersAddress)
+    const ticketNonce: BigNumber = ticketContractResponse
+
+    // const delegateSignaturePromise = signERC2612Permit(
+    //   signer,
+    //   delegateDomain,
+    //   usersAddress,
+    //   ticketContract.address,
+    //   amountToDeposit.amountUnformatted.toString(),
+    //   deadline,
+    //   ticketNonce.toNumber()
+    // )
+    const { user, ...delegateSign } = await generateDelegateSignature(
+      ticketContract,
+      signer,
+      usersAddress,
+      usersAddress
+    )
+
+    try {
+      // toast.promise(permitSignaturePromise, {
+      //   pending: t('signatureIsPending'),
+      //   error: t('signatureRejected')
+      // })
+
+      // const permitSignature = await permitSignaturePromise
+      // console.log(permitSignature)
+
+      // const permitSchema = [
+      //   { name: 'owner', type: 'address' },
+      //   { name: 'spender', type: 'address' },
+      //   { name: 'value', type: 'uint256' },
+      //   { name: 'nonce', type: 'uint256' },
+      //   { name: 'deadline', type: 'uint256' },
+      // ];
+
+      // toast.promise(delegateSignaturePromise, {
+      //   pending: t('signatureIsPending'),
+      //   error: t('signatureRejected')
+      // })
+      // const { user, ...delegateSign } = await generateDelegateSignature(
+      //   ticketContract,
+      //   signer,
+      //   // usersAddress,
+      //   usersAddress
+      // )
+
+      // const delegateSignature = await delegateSignaturePromise
+      console.log(delegateSign)
+      // const delegateSchema = [
+      //   { name: 'user', type: 'address' },
+      //   { name: 'delegate', type: 'address' },
+      //   { name: 'nonce', type: 'uint256' },
+      //   { name: 'deadline', type: 'uint256' },
+      // ];
+
+      // Overwrite v for hardware wallet signatures
+      // https://ethereum.stackexchange.com/questions/103307/cannot-verifiy-a-signature-produced-by-ledger-in-solidity-using-ecrecover
+      const permitSignatureV = permitSignature.v < 27 ? permitSignature.v + 27 : permitSignature.v
+
+      // Delegate signature has a different schema
+      const delegateV = delegateSign.signature.v
+      delegateSign.signature.v = delegateV < 27 ? delegateV + 27 : delegateV
+
+      callTransaction = async () => {
+        // eip2612PermitAndDepositContract.permitAndDepositToAndDelegate(
+        //   prizePool.address,
+        //   amountToDeposit.amountUnformatted,
+        //   usersAddress,
+        //   {
+        //     deadline: permitSignature.deadline,
+        //     v: permitSignatureV,
+        //     r: permitSignature.r,
+        //     s: permitSignature.s
+        //   },
+        //   delegateSign
+        // )
+      }
+    } catch (e) {
+      setSignaturePending(false)
+      console.error(e)
+      return
+    }
+    // }
 
     const txId = await sendTransaction({
       name,
-      callTransaction,
-      callbacks: {
-        onConfirmedByUser: () => logEvent(FathomEvent.deposit),
-        onSuccess,
-        refetch: () => {
-          refetchUsersTotalTwab()
-          refetchUsersBalances()
-        }
-      }
+      callTransaction
+      // callbacks: {
+      //   onConfirmedByUser: () => logEvent(FathomEvent.deposit),
+      //   onSuccess,
+      //   refetch: () => {
+      //     refetchUsersTotalTwab()
+      //     refetchUsersBalances()
+      //   }
+      // }
     })
     setDepositTxId(txId, prizePool)
   }

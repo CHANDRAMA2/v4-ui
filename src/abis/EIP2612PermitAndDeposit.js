@@ -1,50 +1,18 @@
 export default [
   {
     inputs: [
-      {
-        internalType: 'contract IPrizePool',
-        name: '_prizePool',
-        type: 'address'
-      },
-      {
-        internalType: 'uint256',
-        name: '_amount',
-        type: 'uint256'
-      },
-      {
-        internalType: 'address',
-        name: '_to',
-        type: 'address'
-      },
+      { internalType: 'contract IPrizePool', name: '_prizePool', type: 'address' },
+      { internalType: 'uint256', name: '_amount', type: 'uint256' },
+      { internalType: 'address', name: '_to', type: 'address' },
       {
         components: [
-          {
-            internalType: 'address',
-            name: 'delegate',
-            type: 'address'
-          },
+          { internalType: 'address', name: 'delegate', type: 'address' },
           {
             components: [
-              {
-                internalType: 'uint256',
-                name: 'deadline',
-                type: 'uint256'
-              },
-              {
-                internalType: 'uint8',
-                name: 'v',
-                type: 'uint8'
-              },
-              {
-                internalType: 'bytes32',
-                name: 'r',
-                type: 'bytes32'
-              },
-              {
-                internalType: 'bytes32',
-                name: 's',
-                type: 'bytes32'
-              }
+              { internalType: 'uint256', name: 'deadline', type: 'uint256' },
+              { internalType: 'uint8', name: 'v', type: 'uint8' },
+              { internalType: 'bytes32', name: 'r', type: 'bytes32' },
+              { internalType: 'bytes32', name: 's', type: 'bytes32' }
             ],
             internalType: 'struct Signature',
             name: 'signature',
@@ -63,43 +31,15 @@ export default [
   },
   {
     inputs: [
-      {
-        internalType: 'contract IPrizePool',
-        name: '_prizePool',
-        type: 'address'
-      },
-      {
-        internalType: 'uint256',
-        name: '_amount',
-        type: 'uint256'
-      },
-      {
-        internalType: 'address',
-        name: '_to',
-        type: 'address'
-      },
+      { internalType: 'contract IPrizePool', name: '_prizePool', type: 'address' },
+      { internalType: 'uint256', name: '_amount', type: 'uint256' },
+      { internalType: 'address', name: '_to', type: 'address' },
       {
         components: [
-          {
-            internalType: 'uint256',
-            name: 'deadline',
-            type: 'uint256'
-          },
-          {
-            internalType: 'uint8',
-            name: 'v',
-            type: 'uint8'
-          },
-          {
-            internalType: 'bytes32',
-            name: 'r',
-            type: 'bytes32'
-          },
-          {
-            internalType: 'bytes32',
-            name: 's',
-            type: 'bytes32'
-          }
+          { internalType: 'uint256', name: 'deadline', type: 'uint256' },
+          { internalType: 'uint8', name: 'v', type: 'uint8' },
+          { internalType: 'bytes32', name: 'r', type: 'bytes32' },
+          { internalType: 'bytes32', name: 's', type: 'bytes32' }
         ],
         internalType: 'struct Signature',
         name: '_permitSignature',
@@ -107,33 +47,13 @@ export default [
       },
       {
         components: [
-          {
-            internalType: 'address',
-            name: 'delegate',
-            type: 'address'
-          },
+          { internalType: 'address', name: 'delegate', type: 'address' },
           {
             components: [
-              {
-                internalType: 'uint256',
-                name: 'deadline',
-                type: 'uint256'
-              },
-              {
-                internalType: 'uint8',
-                name: 'v',
-                type: 'uint8'
-              },
-              {
-                internalType: 'bytes32',
-                name: 'r',
-                type: 'bytes32'
-              },
-              {
-                internalType: 'bytes32',
-                name: 's',
-                type: 'bytes32'
-              }
+              { internalType: 'uint256', name: 'deadline', type: 'uint256' },
+              { internalType: 'uint8', name: 'v', type: 'uint8' },
+              { internalType: 'bytes32', name: 'r', type: 'bytes32' },
+              { internalType: 'bytes32', name: 's', type: 'bytes32' }
             ],
             internalType: 'struct Signature',
             name: 'signature',
